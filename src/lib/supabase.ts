@@ -1,22 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
 
-export const supabaseUrl =
-  import.meta.env.VITE_SUPABASE_URL?.trim() ?? "";
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabasePublishableKey =
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-export const supabaseKey =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
-
-export const isSupabaseConfigured =
-  Boolean(supabaseUrl && supabaseKey);
+if (!supabaseUrl || !supabasePublishableKey) {
+  throw new Error(
+    "缺少 Supabase 設定，請檢查 VITE_SUPABASE_URL 與 VITE_SUPABASE_PUBLISHABLE_KEY。"
+  );
+}
 
 export const supabase = createClient(
-  supabaseUrl || "https://placeholder.supabase.co",
-  supabaseKey || "placeholder",
-  {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true
-    }
-  }
+  supabaseUrl,
+  supabasePublishableKey
 );
