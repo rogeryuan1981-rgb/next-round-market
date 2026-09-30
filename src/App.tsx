@@ -120,11 +120,11 @@ export default function App() {
       window.location.origin + window.location.pathname;
 
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: "facebook",
+      provider: "google",
       options: { redirectTo }
     });
 
-    if (error) setMessage("Facebook 登入目前無法使用。");
+    if (error) setMessage("Google 登入目前無法使用。");
   }
 
   async function signOut() {
@@ -168,7 +168,7 @@ export default function App() {
               onClick={signIn}
               disabled={!isSupabaseConfigured}
             >
-              使用 Facebook 登入
+              使用 Google 登入
             </button>
           )}
         </nav>
