@@ -14,7 +14,7 @@ type Listing = {
   ends_at: string | null;
   condition_label: string;
   mold_level: string;
-  cover_image_url: string | null;
+  cover_image_path: string | null;
 };
 
 const auctionLabels: Record<Listing["auction_type"], string> = {
@@ -69,7 +69,7 @@ export default function App() {
       const { data, error } = await supabase
         .from("listings_public")
         .select(
-          "id,title,auction_type,current_price,buy_now_price,ends_at,condition_label,mold_level,cover_image_url"
+          "id,title,auction_type,current_price,buy_now_price,ends_at,condition_label,mold_level,cover_image_path"
         )
         .order("created_at", { ascending: false })
         .limit(60);
@@ -250,9 +250,13 @@ export default function App() {
               {filteredListings.map((listing) => (
                 <article className="listing-card" key={listing.id}>
                   <div className="listing-image">
-                    {listing.cover_image_url ? (
+                    {listing.cover_image_path ? (
                       <img
-                        src={listing.cover_image_url}
+                        src={
+                              supabase.storage
+                                .from("listing-photos")
+                                .getPublicUrl(listing.cover_image_path).data.publicUrl
+                            }
                         alt={`${listing.title} 商品實拍`}
                         loading="lazy"
                       />
