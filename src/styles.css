@@ -706,6 +706,7 @@ textarea:focus {
 }
 
 .main-photo {
+  position: relative;
   display: grid;
   aspect-ratio: 4 / 3;
   place-items: center;
@@ -713,6 +714,17 @@ textarea:focus {
   border: 1px solid var(--line);
   border-radius: 24px;
   background: #eee4d8;
+}
+
+.photo-timestamp {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgb(20 17 15 / 82%);
+  color: white;
+  font-size: 0.88rem;
 }
 
 .main-photo img {
@@ -1399,12 +1411,13 @@ footer p {
 }
 
 .chat-panel {
-  display: grid;
-  grid-template-rows: auto auto minmax(240px, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   height: min(760px, calc(100vh - 40px));
 }
 
 .chat-history {
+  flex: 1 1 auto;
   overflow-y: auto;
   min-height: 240px;
   margin: 18px 0;
@@ -1492,6 +1505,178 @@ footer p {
   color: var(--muted);
 }
 
+.description-history,
+.link-history {
+  margin-top: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: white;
+}
+
+.description-history summary,
+.link-history summary {
+  padding: 14px 16px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.description-history ol,
+.link-history ol {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0 16px 16px 44px;
+}
+
+.description-history li,
+.link-history li {
+  padding: 14px;
+  border-radius: 12px;
+  background: #f7f1e9;
+}
+
+.description-history li > div,
+.link-history li > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.description-history time,
+.link-history time {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.link-history a {
+  overflow-wrap: anywhere;
+}
+
+.listing-actions {
+  justify-content: flex-end;
+}
+
+.member-status-section {
+  padding: clamp(22px, 4vw, 38px);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: #fffaf3;
+}
+
+.member-filters {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(210px, 0.45fr);
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.member-filters label,
+.member-filters label span {
+  display: block;
+}
+
+.member-filters label span {
+  margin-bottom: 7px;
+  font-weight: 800;
+}
+
+.member-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.member-status-card {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+}
+
+.member-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.member-card-heading h3,
+.member-card-heading p {
+  margin: 0;
+}
+
+.member-card-heading p {
+  margin-top: 4px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.member-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.member-badges span {
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: #eee5dc;
+  font-size: 0.9rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.member-badges .status-active {
+  background: #dcebd8;
+  color: #24552a;
+}
+
+.member-badges .status-suspended {
+  background: #f4d4d0;
+  color: #8b2922;
+}
+
+.member-badges .status-profile_pending {
+  background: #f5e4b8;
+  color: #75540a;
+}
+
+.member-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+
+.member-facts > div {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8f2eb;
+}
+
+.member-facts dt {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.member-facts dd {
+  margin: 4px 0 0;
+  font-weight: 800;
+}
+
+.member-id summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.member-id code {
+  display: block;
+  margin-top: 8px;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 1050px) {
   .site-header {
     align-items: flex-start;
@@ -1577,6 +1762,7 @@ footer p {
   .trust-strip,
   .listing-grid,
   .review-grid,
+  .member-admin-grid,
   .rule-grid,
   .detail-sections,
   .guide-grid,
@@ -1602,6 +1788,20 @@ footer p {
 
   .inline-action {
     grid-template-columns: 1fr;
+  }
+
+  .member-filters,
+  .member-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .member-card-heading {
+    display: block;
+  }
+
+  .member-badges {
+    justify-content: flex-start;
+    margin-top: 12px;
   }
 
   .chat-compose,

@@ -72,6 +72,15 @@ type TransactionMessage = {
   created_at: string;
 };
 
+type TransactionLinkHistory = {
+  id: string;
+  previous_link: string | null;
+  new_link: string;
+  changed_by: string;
+  changed_by_name: string;
+  created_at: string;
+};
+
 type PublicReview = {
   id: string;
   author_name: string;
@@ -81,6 +90,20 @@ type PublicReview = {
   review_text: string;
   created_at: string;
   photos: Array<{ storage_path: string; sort_order: number }>;
+};
+
+type ListingPhoto = {
+  url: string;
+  storage_path: string;
+  created_at: string;
+};
+
+type DescriptionHistory = {
+  id: string;
+  changed_by_name: string;
+  previous_description: string | null;
+  new_description: string;
+  created_at: string;
 };
 
 type DashboardData = {
@@ -93,6 +116,25 @@ type DashboardData = {
 type AdminData = {
   pending_listings: Array<Record<string, unknown>>;
   reports: Array<Record<string, unknown>>;
+};
+
+type MemberStatus = {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  role: "member" | "admin";
+  account_status: "active" | "suspended" | "profile_pending";
+  suspended_at: string | null;
+  first_listing_approved_at: string | null;
+  created_at: string;
+  last_sign_in_at: string | null;
+  listing_count: number;
+  active_listing_count: number;
+  transaction_count: number;
+  report_count: number;
+  open_report_count: number;
+  average_rating: number | null;
+  review_count: number;
 };
 
 const auctionLabels: Record<AuctionType, string> = {
@@ -280,7 +322,13 @@ function errorText(error: unknown) {
     MESSAGE_LENGTH_INVALID: "訊息必須是 1 至 2,000 個字。",
     REVIEW_ALREADY_SUBMITTED: "你已經送出這筆交易的評價，不能重複評價。",
     REVIEW_TEXT_LENGTH_INVALID: "評價內容必須是 10 至 2,000 個字。",
-    INVALID_REVIEW_PHOTOS: "評價最多可附 5 張照片。"
+    INVALID_REVIEW_PHOTOS: "評價最多可附 5 張照片。",
+    DESCRIPTION_TOO_SHORT: "商品說明至少需要 20 個字。",
+    DESCRIPTION_UNCHANGED: "商品說明沒有變更。",
+    LISTING_PHOTO_BATCH_LIMIT: "每次只能新增 1 至 10 張商品照片。",
+    LISTING_PHOTO_TOTAL_LIMIT: "每件商品最多保留 30 張照片。",
+    LISTING_DOES_NOT_ACCEPT_NEW_PHOTOS: "已下架或未通過審核的商品不能新增照片。",
+    LISTING_PHOTOS_ARE_IMMUTABLE: "商品照片送出後不能修改或刪除。"
   };
 
   const matched = Object.keys(translations).find((key) =>
@@ -720,8 +768,9 @@ function ListingDetail({
   onMessage: (value: string) => void;
 }) {
   const [listing, setListing] = useState<Listing | null>(null);
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<ListingPhoto[]>([]);
   const [reviews, setReviews] = useState<PublicReview[]>([]);
+  const [descriptionHistory, setDescriptionHistory] = useState<DescriptionHistory[]>([]);
   const [activePhoto, setActivePhoto] = useState(0);
   const [maximumBid, setMaximumBid] = useState("");
   const [acceptablePrice, setAcceptablePrice] = useState("");
@@ -732,7 +781,7 @@ function ListingDetail({
   const [, tick] = useState(0);
 
   const load = useCallback(async () => {
-    const [listingResult, photoResult, reviewResult] = await Promise.all([
+    const [listingResult, photoResult, reviewResult, historyResult] = await Promise.all([
       supabase
         .from("market_listings_public")
         .select("*")
@@ -740,14 +789,19 @@ function ListingDetail({
         .single(),
       supabase
         .from("market_listing_photos_public")
-        .select("storage_path,sort_order")
+        .select("storage_path,sort_order,created_at")
         .eq("listing_id", listingId)
         .order("sort_order"),
       supabase
         .from("market_listing_reviews_public")
         .select("*")
         .eq("listing_id", listingId)
-        .order("created_at", { ascending: false })
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("market_listing_description_history_public")
+        .select("*")
+        .eq("listing_id", listingId)
+        .order("created_at", { ascending: true })
     ]);
     if (listingResult.error) {
       onMessage(errorText(listingResult.error));
@@ -755,9 +809,14 @@ function ListingDetail({
     }
     setListing(listingResult.data as Listing);
     setPhotos(
-      (photoResult.data ?? []).map((photo) => publicPhoto(photo.storage_path))
+      (photoResult.data ?? []).map((photo) => ({
+        url: publicPhoto(photo.storage_path),
+        storage_path: photo.storage_path,
+        created_at: photo.created_at
+      }))
     );
     setReviews((reviewResult.data ?? []) as PublicReview[]);
+    setDescriptionHistory((historyResult.data ?? []) as DescriptionHistory[]);
   }, [listingId, onMessage]);
 
   useEffect(() => {
@@ -821,7 +880,12 @@ function ListingDetail({
         <div className="photo-gallery">
           <div className="main-photo">
             {photos[activePhoto] ? (
-              <img src={photos[activePhoto]} alt={`${listing.title} 實拍照片`} />
+              <>
+                <img src={photos[activePhoto].url} alt={`${listing.title} 實拍照片`} />
+                <span className="photo-timestamp">
+                  照片新增時間：{dateTime(photos[activePhoto].created_at)}
+                </span>
+              </>
             ) : (
               <span>尚無照片</span>
             )}
@@ -833,9 +897,9 @@ function ListingDetail({
                   type="button"
                   className={index === activePhoto ? "active" : ""}
                   onClick={() => setActivePhoto(index)}
-                  key={photo}
+                  key={photo.storage_path}
                 >
-                  <img src={photo} alt={`第 ${index + 1} 張商品照片`} />
+                  <img src={photo.url} alt={`第 ${index + 1} 張商品照片`} />
                 </button>
               ))}
             </div>
@@ -1033,6 +1097,22 @@ function ListingDetail({
         <section>
           <h2>商品說明</h2>
           <p className="preserve-lines">{listing.description}</p>
+          {descriptionHistory.length > 0 && (
+            <details className="description-history">
+              <summary>查看商品說明完整版本紀錄（{descriptionHistory.length} 版）</summary>
+              <ol>
+                {descriptionHistory.map((history, index) => (
+                  <li key={history.id}>
+                    <div>
+                      <strong>第 {index + 1} 版 · {history.changed_by_name}</strong>
+                      <time>{dateTime(history.created_at)}</time>
+                    </div>
+                    <p className="preserve-lines">{history.new_description}</p>
+                  </li>
+                ))}
+              </ol>
+            </details>
+          )}
         </section>
         <section>
           <h2>站方統一狀況定義</h2>
@@ -1916,6 +1996,12 @@ function AccountPage({
   const [activeReview, setActiveReview] = useState<Record<string, unknown> | null>(
     null
   );
+  const [photoListing, setPhotoListing] = useState<Record<string, unknown> | null>(
+    null
+  );
+  const [descriptionListing, setDescriptionListing] = useState<Record<string, unknown> | null>(
+    null
+  );
 
   const load = useCallback(async () => {
     const [{ data: result, error }, reviewResult] = await Promise.all([
@@ -1990,7 +2076,7 @@ function AccountPage({
     });
     if (error) onMessage(errorText(error));
     else {
-      onMessage("交易連結已提供給買家。");
+      onMessage("交易連結已更新；舊連結與伺服器時間已保留供交易雙方查閱。");
       await load();
     }
   }
@@ -2107,11 +2193,21 @@ function AccountPage({
                     <p className="danger-text">原因：{String(listing.removed_reason)}</p>
                   )}
                 </div>
-                {listing.status === "active" && (
-                  <button type="button" onClick={() => onOpen(String(listing.id))}>
-                    查看
+                <div className="button-row listing-actions">
+                  {listing.status === "active" && (
+                    <button type="button" onClick={() => onOpen(String(listing.id))}>
+                      查看
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setDescriptionListing(listing)}>
+                    修正商品說明
                   </button>
-                )}
+                  {!['removed', 'rejected'].includes(String(listing.status)) && (
+                    <button type="button" onClick={() => setPhotoListing(listing)}>
+                      新增照片
+                    </button>
+                  )}
+                </div>
               </article>
             ))}
           </div>
@@ -2172,12 +2268,12 @@ function AccountPage({
                         填寫成交評價
                       </button>
                     )}
-                    {transaction.my_role === "seller" && !link && (
+                    {transaction.my_role === "seller" && (
                       <button
                         type="button"
                         onClick={() => provideLink(transaction.id)}
                       >
-                        提供交易連結
+                        {link ? "更新交易連結（保留紀錄）" : "提供交易連結"}
                       </button>
                     )}
                     <button
@@ -2255,7 +2351,202 @@ function AccountPage({
           onMessage={onMessage}
         />
       )}
+
+      {photoListing && (
+        <AdditionalPhotoForm
+          listing={photoListing}
+          session={session}
+          onClose={() => setPhotoListing(null)}
+          onFinished={() => {
+            setPhotoListing(null);
+            onMessage("照片已追加，新增時間已記錄；追加後不能修改或刪除。");
+          }}
+          onMessage={onMessage}
+        />
+      )}
+
+      {descriptionListing && (
+        <DescriptionEditForm
+          listing={descriptionListing}
+          onClose={() => setDescriptionListing(null)}
+          onFinished={() => {
+            setDescriptionListing(null);
+            onMessage("商品說明已更新；所有版本與伺服器時間都已永久保留並公開。 ");
+          }}
+          onMessage={onMessage}
+        />
+      )}
     </section>
+  );
+}
+
+function DescriptionEditForm({
+  listing,
+  onClose,
+  onFinished,
+  onMessage
+}: {
+  listing: Record<string, unknown>;
+  onClose: () => void;
+  onFinished: () => void;
+  onMessage: (value: string) => void;
+}) {
+  const [description, setDescription] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void supabase
+      .rpc("get_my_listing_description", { requested_listing_id: listing.id })
+      .then(({ data, error }) => {
+        if (!active) return;
+        setLoading(false);
+        if (error) onMessage(errorText(error));
+        else setDescription(String(data ?? ""));
+      });
+    return () => {
+      active = false;
+    };
+  }, [listing.id, onMessage]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setSubmitting(true);
+    const { error } = await supabase.rpc("update_market_listing_description", {
+      requested_listing_id: listing.id,
+      requested_description: description
+    });
+    setSubmitting(false);
+    if (error) onMessage(errorText(error));
+    else onFinished();
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <form
+        className="dialog-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="修正商品說明"
+        onSubmit={submit}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-heading">
+          <div>
+            <span className="eyebrow">EDIT WITH HISTORY</span>
+            <h2>修正「{String(listing.title)}」說明</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="關閉">×</button>
+        </div>
+        <Notice tone="info">
+          最新內容會成為商品目前說明；所有舊版本、修改者與伺服器時間仍會公開保留。
+        </Notice>
+        <Field label="完整商品說明" hint="至少 20 個字。請直接修正完整內容，不要只填補充片段。">
+          <textarea
+            required
+            minLength={20}
+            value={description}
+            disabled={loading}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+        </Field>
+        <button className="primary-button" type="submit" disabled={loading || submitting || description.trim().length < 20}>
+          {loading ? "載入中…" : submitting ? "儲存中…" : "儲存新版本"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function AdditionalPhotoForm({
+  listing,
+  session,
+  onClose,
+  onFinished,
+  onMessage
+}: {
+  listing: Record<string, unknown>;
+  session: Session;
+  onClose: () => void;
+  onFinished: () => void;
+  onMessage: (value: string) => void;
+}) {
+  const [files, setFiles] = useState<File[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (files.length < 1 || files.length > 10) {
+      onMessage("每次請選擇 1 至 10 張照片。");
+      return;
+    }
+    if (files.some((file) => !file.type.startsWith("image/") || file.size > 8 * 1024 * 1024)) {
+      onMessage("只能上傳圖片，且單張不得超過 8 MB。");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const paths: string[] = [];
+      for (const file of files) {
+        const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+        const path = `${session.user.id}/${listing.id}/${crypto.randomUUID()}.${extension}`;
+        const { error } = await supabase.storage
+          .from("listing-photos")
+          .upload(path, file, { cacheControl: "3600", upsert: false });
+        if (error) throw error;
+        paths.push(path);
+      }
+
+      const { error } = await supabase.rpc("add_listing_photos", {
+        requested_listing_id: listing.id,
+        requested_photos: paths.map((storage_path) => ({ storage_path }))
+      });
+      if (error) throw error;
+      onFinished();
+    } catch (error) {
+      onMessage(errorText(error));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <form
+        className="dialog-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="新增商品照片"
+        onSubmit={submit}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-heading">
+          <div>
+            <span className="eyebrow">ADD PHOTOS</span>
+            <h2>新增「{String(listing.title)}」照片</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="關閉">×</button>
+        </div>
+        <Notice tone="warning">
+          只能追加本人實拍。照片送出後會押伺服器時間，不能修改或刪除。
+        </Notice>
+        <Field label="選擇照片" hint="每次 1 至 10 張、單張最多 8 MB；每件商品總計最多 30 張。">
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            required
+            onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 10))}
+          />
+        </Field>
+        {files.length > 0 && <p className="selected-files">已選擇 {files.length} 張照片</p>}
+        <button className="primary-button" type="submit" disabled={submitting || files.length === 0}>
+          {submitting ? "上傳中…" : "確認追加照片"}
+        </button>
+      </form>
+    </div>
   );
 }
 
@@ -2271,15 +2562,23 @@ function TransactionChat({
   onMessage: (value: string) => void;
 }) {
   const [messages, setMessages] = useState<TransactionMessage[]>([]);
+  const [linkHistory, setLinkHistory] = useState<TransactionLinkHistory[]>([]);
   const [messageText, setMessageText] = useState("");
   const [sending, setSending] = useState(false);
 
   const loadMessages = useCallback(async () => {
-    const { data, error } = await supabase.rpc("get_transaction_messages", {
-      requested_transaction_id: transaction.id
-    });
-    if (error) onMessage(errorText(error));
-    else setMessages((data ?? []) as TransactionMessage[]);
+    const [messageResult, linkResult] = await Promise.all([
+      supabase.rpc("get_transaction_messages", {
+        requested_transaction_id: transaction.id
+      }),
+      supabase.rpc("get_transaction_link_history", {
+        requested_transaction_id: transaction.id
+      })
+    ]);
+    if (messageResult.error) onMessage(errorText(messageResult.error));
+    else setMessages((messageResult.data ?? []) as TransactionMessage[]);
+    if (linkResult.error) onMessage(errorText(linkResult.error));
+    else setLinkHistory((linkResult.data ?? []) as TransactionLinkHistory[]);
   }, [onMessage, transaction.id]);
 
   useEffect(() => {
@@ -2323,6 +2622,35 @@ function TransactionChat({
         <Notice tone="info">
           此處只供本筆交易的買賣雙方溝通。所有訊息會保留發言者與時間，不能修改或刪除。
         </Notice>
+        {linkHistory.length > 0 && (
+          <details className="link-history">
+            <summary>查看交易連結完整歷程（{linkHistory.length} 筆）</summary>
+            <ol>
+              {linkHistory.map((history) => (
+                <li key={history.id}>
+                  <div>
+                    <strong>{history.changed_by_name}</strong>
+                    <time>{dateTime(history.created_at)}</time>
+                  </div>
+                  {history.previous_link && (
+                    <p>
+                      舊連結：
+                      <a href={history.previous_link} target="_blank" rel="noreferrer">
+                        {history.previous_link}
+                      </a>
+                    </p>
+                  )}
+                  <p>
+                    新連結：
+                    <a href={history.new_link} target="_blank" rel="noreferrer">
+                      {history.new_link}
+                    </a>
+                  </p>
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
         <div className="chat-history" aria-live="polite">
           {messages.length === 0 ? (
             <div className="empty-state">尚無訊息，請直接說明付款、交付或商品確認事項。</div>
@@ -2518,19 +2846,41 @@ function ReviewForm({
 
 function AdminPage({ onMessage }: { onMessage: (value: string) => void }) {
   const [data, setData] = useState<AdminData | null>(null);
+  const [members, setMembers] = useState<MemberStatus[]>([]);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberFilter, setMemberFilter] = useState("all");
   const [working, setWorking] = useState(false);
 
   const load = useCallback(async () => {
-    const { data: result, error } = await supabase.rpc(
-      "get_admin_market_dashboard"
-    );
-    if (error) onMessage(errorText(error));
-    else setData(result as AdminData);
+    const [dashboardResult, memberResult] = await Promise.all([
+      supabase.rpc("get_admin_market_dashboard"),
+      supabase.rpc("get_admin_member_statuses")
+    ]);
+    if (dashboardResult.error) onMessage(errorText(dashboardResult.error));
+    else setData(dashboardResult.data as AdminData);
+    if (memberResult.error) onMessage(errorText(memberResult.error));
+    else setMembers((memberResult.data ?? []) as MemberStatus[]);
   }, [onMessage]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const filteredMembers = useMemo(() => {
+    const keyword = memberSearch.trim().toLocaleLowerCase("zh-TW");
+    return members.filter((member) => {
+      const matchesStatus =
+        memberFilter === "all" ||
+        member.account_status === memberFilter ||
+        member.role === memberFilter;
+      const matchesKeyword =
+        !keyword ||
+        (member.display_name ?? "").toLocaleLowerCase("zh-TW").includes(keyword) ||
+        (member.email ?? "").toLocaleLowerCase("zh-TW").includes(keyword) ||
+        member.id.toLocaleLowerCase().includes(keyword);
+      return matchesStatus && matchesKeyword;
+    });
+  }, [memberFilter, memberSearch, members]);
 
   async function review(id: unknown, approved: boolean) {
     const note = approved
@@ -2579,6 +2929,111 @@ function AdminPage({ onMessage }: { onMessage: (value: string) => void }) {
         <h1>管理後台</h1>
         <p>管理員可以審核第一件商品、處理檢舉與下架，但不能取消或改寫合法出價。</p>
       </div>
+
+      <section className="dashboard-section member-status-section">
+        <div className="section-heading compact-heading">
+          <div>
+            <span className="eyebrow">MEMBER STATUS</span>
+            <h2>全部會員狀態（{members.length}）</h2>
+          </div>
+          <p>本區僅供確認會員狀態，不提供刪除會員或改寫交易紀錄。</p>
+        </div>
+        <div className="member-filters">
+          <label>
+            <span>搜尋會員</span>
+            <input
+              type="search"
+              value={memberSearch}
+              onChange={(event) => setMemberSearch(event.target.value)}
+              placeholder="名稱、Email 或會員 ID"
+            />
+          </label>
+          <label>
+            <span>狀態篩選</span>
+            <select
+              value={memberFilter}
+              onChange={(event) => setMemberFilter(event.target.value)}
+            >
+              <option value="all">全部狀態</option>
+              <option value="active">啟用中</option>
+              <option value="suspended">已停權</option>
+              <option value="profile_pending">資料尚未建立</option>
+              <option value="admin">管理員</option>
+              <option value="member">一般會員</option>
+            </select>
+          </label>
+        </div>
+        {filteredMembers.length === 0 ? (
+          <div className="empty-state">沒有符合條件的會員。</div>
+        ) : (
+          <div className="member-admin-grid">
+            {filteredMembers.map((member) => (
+              <article className="member-status-card" key={member.id}>
+                <div className="member-card-heading">
+                  <div>
+                    <h3>{member.display_name || "尚未設定顯示名稱"}</h3>
+                    <p>{member.email || "未提供 Email"}</p>
+                  </div>
+                  <div className="member-badges">
+                    <span className={`member-status status-${member.account_status}`}>
+                      {member.account_status === "active"
+                        ? "啟用中"
+                        : member.account_status === "suspended"
+                          ? "已停權"
+                          : "資料尚未建立"}
+                    </span>
+                    <span>{member.role === "admin" ? "管理員" : "一般會員"}</span>
+                  </div>
+                </div>
+                <dl className="member-facts">
+                  <div>
+                    <dt>第一件商品</dt>
+                    <dd>{member.first_listing_approved_at ? "已通過審核" : "尚未通過"}</dd>
+                  </div>
+                  <div>
+                    <dt>刊登</dt>
+                    <dd>{member.listing_count} 件（進行中 {member.active_listing_count}）</dd>
+                  </div>
+                  <div>
+                    <dt>成交參與</dt>
+                    <dd>{member.transaction_count} 筆</dd>
+                  </div>
+                  <div>
+                    <dt>被檢舉</dt>
+                    <dd>{member.report_count} 件（待處理 {member.open_report_count}）</dd>
+                  </div>
+                  <div>
+                    <dt>交易評價</dt>
+                    <dd>
+                      {member.review_count > 0
+                        ? `★ ${Number(member.average_rating).toFixed(1)}（${member.review_count} 則）`
+                        : "尚無評價"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>加入時間</dt>
+                    <dd>{dateTime(member.created_at)}</dd>
+                  </div>
+                  <div>
+                    <dt>最近登入</dt>
+                    <dd>{dateTime(member.last_sign_in_at)}</dd>
+                  </div>
+                  {member.suspended_at && (
+                    <div>
+                      <dt>停權時間</dt>
+                      <dd>{dateTime(member.suspended_at)}</dd>
+                    </div>
+                  )}
+                </dl>
+                <details className="member-id">
+                  <summary>查看會員 ID</summary>
+                  <code>{member.id}</code>
+                </details>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="dashboard-section">
         <h2>第一件商品待審核（{data.pending_listings.length}）</h2>
