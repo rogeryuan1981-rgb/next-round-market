@@ -2849,6 +2849,7 @@ function AdminPage({ onMessage }: { onMessage: (value: string) => void }) {
   const [members, setMembers] = useState<MemberStatus[]>([]);
   const [memberSearch, setMemberSearch] = useState("");
   const [memberFilter, setMemberFilter] = useState("all");
+  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
 
   const load = useCallback(async () => {
@@ -2968,8 +2969,20 @@ function AdminPage({ onMessage }: { onMessage: (value: string) => void }) {
         ) : (
           <div className="member-admin-grid">
             {filteredMembers.map((member) => (
-              <article className="member-status-card" key={member.id}>
-                <div className="member-card-heading">
+              <article
+                className={`member-status-card ${expandedMemberId === member.id ? "expanded" : ""}`}
+                key={member.id}
+              >
+                <button
+                  className="member-card-toggle"
+                  type="button"
+                  aria-expanded={expandedMemberId === member.id}
+                  onClick={() =>
+                    setExpandedMemberId((current) =>
+                      current === member.id ? null : member.id
+                    )
+                  }
+                >
                   <div>
                     <h3>{member.display_name || "尚未設定顯示名稱"}</h3>
                     <p>{member.email || "未提供 Email"}</p>
@@ -2983,52 +2996,59 @@ function AdminPage({ onMessage }: { onMessage: (value: string) => void }) {
                           : "資料尚未建立"}
                     </span>
                     <span>{member.role === "admin" ? "管理員" : "一般會員"}</span>
+                    <b className="expand-indicator">
+                      {expandedMemberId === member.id ? "收合 −" : "查看 ＋"}
+                    </b>
                   </div>
-                </div>
-                <dl className="member-facts">
-                  <div>
-                    <dt>第一件商品</dt>
-                    <dd>{member.first_listing_approved_at ? "已通過審核" : "尚未通過"}</dd>
-                  </div>
-                  <div>
-                    <dt>刊登</dt>
-                    <dd>{member.listing_count} 件（進行中 {member.active_listing_count}）</dd>
-                  </div>
-                  <div>
-                    <dt>成交參與</dt>
-                    <dd>{member.transaction_count} 筆</dd>
-                  </div>
-                  <div>
-                    <dt>被檢舉</dt>
-                    <dd>{member.report_count} 件（待處理 {member.open_report_count}）</dd>
-                  </div>
-                  <div>
-                    <dt>交易評價</dt>
-                    <dd>
-                      {member.review_count > 0
-                        ? `★ ${Number(member.average_rating).toFixed(1)}（${member.review_count} 則）`
-                        : "尚無評價"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>加入時間</dt>
-                    <dd>{dateTime(member.created_at)}</dd>
-                  </div>
-                  <div>
-                    <dt>最近登入</dt>
-                    <dd>{dateTime(member.last_sign_in_at)}</dd>
-                  </div>
-                  {member.suspended_at && (
-                    <div>
-                      <dt>停權時間</dt>
-                      <dd>{dateTime(member.suspended_at)}</dd>
+                </button>
+                {expandedMemberId === member.id && (
+                  <div className="member-expanded-content">
+                    <dl className="member-facts">
+                      <div>
+                        <dt>第一件商品</dt>
+                        <dd>{member.first_listing_approved_at ? "已通過審核" : "尚未通過"}</dd>
+                      </div>
+                      <div>
+                        <dt>刊登</dt>
+                        <dd>{member.listing_count} 件（進行中 {member.active_listing_count}）</dd>
+                      </div>
+                      <div>
+                        <dt>成交參與</dt>
+                        <dd>{member.transaction_count} 筆</dd>
+                      </div>
+                      <div>
+                        <dt>被檢舉</dt>
+                        <dd>{member.report_count} 件（待處理 {member.open_report_count}）</dd>
+                      </div>
+                      <div>
+                        <dt>交易評價</dt>
+                        <dd>
+                          {member.review_count > 0
+                            ? `★ ${Number(member.average_rating).toFixed(1)}（${member.review_count} 則）`
+                            : "尚無評價"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>加入時間</dt>
+                        <dd>{dateTime(member.created_at)}</dd>
+                      </div>
+                      <div>
+                        <dt>最近登入</dt>
+                        <dd>{dateTime(member.last_sign_in_at)}</dd>
+                      </div>
+                      {member.suspended_at && (
+                        <div>
+                          <dt>停權時間</dt>
+                          <dd>{dateTime(member.suspended_at)}</dd>
+                        </div>
+                      )}
+                    </dl>
+                    <div className="member-id">
+                      <b>會員 ID</b>
+                      <code>{member.id}</code>
                     </div>
-                  )}
-                </dl>
-                <details className="member-id">
-                  <summary>查看會員 ID</summary>
-                  <code>{member.id}</code>
-                </details>
+                  </div>
+                )}
               </article>
             ))}
           </div>

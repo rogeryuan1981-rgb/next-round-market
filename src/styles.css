@@ -1587,25 +1587,42 @@ footer p {
 }
 
 .member-status-card {
-  padding: 20px;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 18px;
   background: white;
 }
 
-.member-card-heading {
+.member-status-card.expanded {
+  grid-column: 1 / -1;
+  box-shadow: 0 16px 40px rgb(73 44 25 / 10%);
+}
+
+.member-card-toggle {
+  width: 100%;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
+  padding: 15px 17px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
 }
 
-.member-card-heading h3,
-.member-card-heading p {
+.member-card-toggle:hover {
+  background: #f8f2eb;
+}
+
+.member-card-toggle h3,
+.member-card-toggle p {
   margin: 0;
 }
 
-.member-card-heading p {
+.member-card-toggle p {
   margin-top: 4px;
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -1625,6 +1642,16 @@ footer p {
   font-size: 0.9rem;
   font-weight: 800;
   white-space: nowrap;
+}
+
+.member-badges .expand-indicator {
+  background: var(--ink);
+  color: white;
+}
+
+.member-expanded-content {
+  padding: 0 18px 18px;
+  border-top: 1px solid var(--line);
 }
 
 .member-badges .status-active {
@@ -1663,12 +1690,6 @@ footer p {
 .member-facts dd {
   margin: 4px 0 0;
   font-weight: 800;
-}
-
-.member-id summary {
-  cursor: pointer;
-  color: var(--muted);
-  font-weight: 700;
 }
 
 .member-id code {
@@ -1795,7 +1816,7 @@ footer p {
     grid-template-columns: 1fr;
   }
 
-  .member-card-heading {
+  .member-card-toggle {
     display: block;
   }
 
