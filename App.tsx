@@ -118,6 +118,25 @@ type AdminData = {
   reports: Array<Record<string, unknown>>;
 };
 
+type MemberStatus = {
+  id: string;
+  email: string | null;
+  display_name: string | null;
+  role: "member" | "admin";
+  account_status: "active" | "suspended" | "profile_pending";
+  suspended_at: string | null;
+  first_listing_approved_at: string | null;
+  created_at: string;
+  last_sign_in_at: string | null;
+  listing_count: number;
+  active_listing_count: number;
+  transaction_count: number;
+  report_count: number;
+  open_report_count: number;
+  average_rating: number | null;
+  review_count: number;
+};
+
 const auctionLabels: Record<AuctionType, string> = {
   timed: "定時競標",
   dutch: "荷蘭式競標",
@@ -2827,19 +2846,41 @@ function ReviewForm({
 
 function AdminPage({ onMessage }: { onMessage: (value: string) => void }) {
   const [data, setData] = useState<AdminData | null>(null);
+  const [members, setMembers] = useState<MemberStatus[]>([]);
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberFilter, setMemberFilter] = useState("all");
   const [working, setWorking] = useState(false);
 
   const load = useCallback(async () => {
-    const { data: result, error } = await supabase.rpc(
-      "get_admin_market_dashboard"
-    );
-    if (error) onMessage(errorText(error));
-    else setData(result as AdminData);
+    const [dashboardResult, memberResult] = await Promise.all([
+      supabase.rpc("get_admin_market_dashboard"),
+      supabase.rpc("get_admin_member_statuses")
+    ]);
+    if (dashboardResult.error) onMessage(errorText(dashboardResult.error));
+    else setData(dashboardResult.data as AdminData);
+    if (memberResult.error) onMessage(errorText(memberResult.error));
+    else setMembers((memberResult.data ?? []) as MemberStatus[]);
   }, [onMessage]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const filteredMembers = useMemo(() => {
+    const keyword = memberSearch.trim().toLocaleLowerCase("zh-TW");
+    return members.filter((member) => {
+      const matchesStatus =
+        memberFilter === "all" ||
+        member.account_status === memberFilter ||
+        member.role === memberFilter;
+      const matchesKeyword =
+        !keyword ||
+        (member.display_name ?? "").toLocaleLowerCase("zh-TW").includes(keyword) ||
+        (member.email ?? "").toLocaleLowerCase("zh-TW").includes(keyword) ||
+        member.id.toLocaleLowerCase().includes(keyword);
+      return matchesStatus && matchesKeyword;
+    });
+  }, [memberFilter, memberSearch, members]);
 
   async function review(id: unknown, approved: boolean) {
     const note = approved
@@ -2888,6 +2929,111 @@ function AdminPage({ onMessage }: { onMessage: (value: string) => void }) {
         <h1>管理後台</h1>
         <p>管理員可以審核第一件商品、處理檢舉與下架，但不能取消或改寫合法出價。</p>
       </div>
+
+      <section className="dashboard-section member-status-section">
+        <div className="section-heading compact-heading">
+          <div>
+            <span className="eyebrow">MEMBER STATUS</span>
+            <h2>全部會員狀態（{members.length}）</h2>
+          </div>
+          <p>本區僅供確認會員狀態，不提供刪除會員或改寫交易紀錄。</p>
+        </div>
+        <div className="member-filters">
+          <label>
+            <span>搜尋會員</span>
+            <input
+              type="search"
+              value={memberSearch}
+              onChange={(event) => setMemberSearch(event.target.value)}
+              placeholder="名稱、Email 或會員 ID"
+            />
+          </label>
+          <label>
+            <span>狀態篩選</span>
+            <select
+              value={memberFilter}
+              onChange={(event) => setMemberFilter(event.target.value)}
+            >
+              <option value="all">全部狀態</option>
+              <option value="active">啟用中</option>
+              <option value="suspended">已停權</option>
+              <option value="profile_pending">資料尚未建立</option>
+              <option value="admin">管理員</option>
+              <option value="member">一般會員</option>
+            </select>
+          </label>
+        </div>
+        {filteredMembers.length === 0 ? (
+          <div className="empty-state">沒有符合條件的會員。</div>
+        ) : (
+          <div className="member-admin-grid">
+            {filteredMembers.map((member) => (
+              <article className="member-status-card" key={member.id}>
+                <div className="member-card-heading">
+                  <div>
+                    <h3>{member.display_name || "尚未設定顯示名稱"}</h3>
+                    <p>{member.email || "未提供 Email"}</p>
+                  </div>
+                  <div className="member-badges">
+                    <span className={`member-status status-${member.account_status}`}>
+                      {member.account_status === "active"
+                        ? "啟用中"
+                        : member.account_status === "suspended"
+                          ? "已停權"
+                          : "資料尚未建立"}
+                    </span>
+                    <span>{member.role === "admin" ? "管理員" : "一般會員"}</span>
+                  </div>
+                </div>
+                <dl className="member-facts">
+                  <div>
+                    <dt>第一件商品</dt>
+                    <dd>{member.first_listing_approved_at ? "已通過審核" : "尚未通過"}</dd>
+                  </div>
+                  <div>
+                    <dt>刊登</dt>
+                    <dd>{member.listing_count} 件（進行中 {member.active_listing_count}）</dd>
+                  </div>
+                  <div>
+                    <dt>成交參與</dt>
+                    <dd>{member.transaction_count} 筆</dd>
+                  </div>
+                  <div>
+                    <dt>被檢舉</dt>
+                    <dd>{member.report_count} 件（待處理 {member.open_report_count}）</dd>
+                  </div>
+                  <div>
+                    <dt>交易評價</dt>
+                    <dd>
+                      {member.review_count > 0
+                        ? `★ ${Number(member.average_rating).toFixed(1)}（${member.review_count} 則）`
+                        : "尚無評價"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>加入時間</dt>
+                    <dd>{dateTime(member.created_at)}</dd>
+                  </div>
+                  <div>
+                    <dt>最近登入</dt>
+                    <dd>{dateTime(member.last_sign_in_at)}</dd>
+                  </div>
+                  {member.suspended_at && (
+                    <div>
+                      <dt>停權時間</dt>
+                      <dd>{dateTime(member.suspended_at)}</dd>
+                    </div>
+                  )}
+                </dl>
+                <details className="member-id">
+                  <summary>查看會員 ID</summary>
+                  <code>{member.id}</code>
+                </details>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="dashboard-section">
         <h2>第一件商品待審核（{data.pending_listings.length}）</h2>
