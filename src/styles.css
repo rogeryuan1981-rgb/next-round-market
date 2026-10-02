@@ -1645,8 +1645,18 @@ footer p {
 }
 
 .member-badges .expand-indicator {
-  background: var(--ink);
-  color: white;
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 5px 11px;
+  border: 1px solid #e9a06b;
+  border-radius: 999px;
+  background: #fff6ea;
+  color: #a74419;
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .member-expanded-content {

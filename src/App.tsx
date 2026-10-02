@@ -2997,7 +2997,7 @@ function AdminPage({ onMessage }: { onMessage: (value: string) => void }) {
                     </span>
                     <span>{member.role === "admin" ? "管理員" : "一般會員"}</span>
                     <b className="expand-indicator">
-                      {expandedMemberId === member.id ? "收合 −" : "查看 ＋"}
+                      {expandedMemberId === member.id ? "收合資料 ⌃" : "詳細資料 ⌄"}
                     </b>
                   </div>
                 </button>
