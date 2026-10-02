@@ -11,7 +11,7 @@ type Profile = {
   display_name: string | null;
   avatar_url: string | null;
   role: "member" | "admin";
-  contact_info: string | null;
+  contact_info: string | Record<string, unknown> | null;
   bio: string | null;
   first_listing_approved_at: string | null;
   suspended_at: string | null;
@@ -99,7 +99,7 @@ const conditionLabels: Record<string, string> = {
   opened_excellent: "近新：少量使用痕跡，功能完整",
   opened_good: "良好：正常使用痕跡，不影響遊玩",
   well_used: "明顯使用：磨損明顯但仍可遊玩",
-  parts_copy: "零件品：缺件或損壞，供補件使用"
+  parts_copy: "補件用：缺件或損壞，供補件使用"
 };
 
 const itemConditionLabels: Record<string, string> = {
@@ -108,9 +108,34 @@ const itemConditionLabels: Record<string, string> = {
   worn: "明顯磨損",
   damaged: "破損",
   missing: "缺少",
-  not_included: "原本不含",
-  mixed: "各零件狀況不一"
+  not_included: "官方未提供",
+  mixed: "各零件狀況不一（於商品說明處說明）"
 };
+
+const sealedStatusLabels: Record<string, string> = {
+  factory_sealed: "原廠封膜／封條完整",
+  opened: "已拆封",
+  resealed: "重新包膜或重新封裝",
+  unknown: "官方未封裝"
+};
+
+const completenessLabels: Record<string, string> = {
+  complete: "依說明書確認完整",
+  minor_missing: "少量缺件，仍可遊玩",
+  major_missing: "重大缺件或僅供補件",
+  unknown: "未清點／無法確認"
+};
+
+function partConditionLabel(
+  value: string,
+  part: "box" | "manual" | "component"
+) {
+  if (value === "missing") {
+    return part === "box" ? "外盒遺失" : "說明書遺失";
+  }
+  if (value === "not_included") return "官方未提供";
+  return itemConditionLabels[value] ?? value;
+}
 
 const moldLabels: Record<string, string> = {
   none: "無霉味、無可見霉斑",
@@ -130,6 +155,39 @@ function dateTime(value: unknown) {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(new Date(String(value)));
+}
+
+function contactInfoText(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(contactInfoText).filter(Boolean).join("\n");
+  }
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => {
+        const text = contactInfoText(item).trim();
+        if (!text) return "";
+        const labels: Record<string, string> = {
+          text: "",
+          value: "",
+          email: "Email",
+          line: "LINE",
+          line_id: "LINE",
+          phone: "電話",
+          facebook: "Facebook",
+          note: "備註"
+        };
+        const label = labels[key] ?? key;
+        return label ? `${label}：${text}` : text;
+      })
+      .filter(Boolean);
+    return entries.join("\n");
+  }
+  return "";
 }
 
 function remainingTime(value: string | null) {
@@ -941,11 +999,15 @@ function ListingDetail({
             </div>
             <div>
               <dt>封裝狀態</dt>
-              <dd>{listing.sealed_status}</dd>
+              <dd>
+                {sealedStatusLabels[listing.sealed_status] ?? listing.sealed_status}
+              </dd>
             </div>
             <div>
               <dt>完整程度</dt>
-              <dd>{listing.completeness}</dd>
+              <dd>
+                {completenessLabels[listing.completeness] ?? listing.completeness}
+              </dd>
             </div>
             <div>
               <dt>缺件說明</dt>
@@ -962,9 +1024,9 @@ function ListingDetail({
             <div>
               <dt>外盒／說明書／配件</dt>
               <dd>
-                {itemConditionLabels[listing.box_condition]}／
-                {itemConditionLabels[listing.manual_condition]}／
-                {itemConditionLabels[listing.component_condition]}
+                {partConditionLabel(listing.box_condition, "box")}／
+                {partConditionLabel(listing.manual_condition, "manual")}／
+                {partConditionLabel(listing.component_condition, "component")}
               </dd>
             </div>
             <div>
@@ -1102,7 +1164,7 @@ function SellPage({
     meetup: true,
     shipping: false,
     external_link: false,
-    external_link_timing: "none",
+    external_link_timing: "after_sale",
     external_link_url: "",
     meetup_location: "",
     shipping_notes: "",
@@ -1290,7 +1352,7 @@ function SellPage({
                 <option value="factory_sealed">原廠封膜／封條完整</option>
                 <option value="opened">已拆封</option>
                 <option value="resealed">重新包膜或重新封裝</option>
-                <option value="unknown">無法確認</option>
+                <option value="unknown">官方未封裝</option>
               </select>
             </Field>
             <Field label="完整程度">
@@ -1300,7 +1362,7 @@ function SellPage({
               >
                 <option value="complete">依說明書確認完整</option>
                 <option value="minor_missing">少量缺件，仍可遊玩</option>
-                <option value="major_missing">重大缺件或僅供零件</option>
+                <option value="major_missing">重大缺件或僅供補件</option>
                 <option value="unknown">未清點／無法確認</option>
               </select>
             </Field>
@@ -1309,7 +1371,10 @@ function SellPage({
                 value={form.box_condition}
                 onChange={(event) => update("box_condition", event.target.value)}
               >
-                <ConditionOptions includeMissing />
+                <ConditionOptions
+                  includeMissing
+                  missingLabel="外盒遺失"
+                />
               </select>
             </Field>
             <Field label="說明書狀況">
@@ -1317,7 +1382,12 @@ function SellPage({
                 value={form.manual_condition}
                 onChange={(event) => update("manual_condition", event.target.value)}
               >
-                <ConditionOptions includeMissing includeNotIncluded />
+                <ConditionOptions
+                  includeMissing
+                  includeNotIncluded
+                  missingLabel="說明書遺失"
+                  notIncludedLabel="官方未提供"
+                />
               </select>
             </Field>
             <Field label="配件狀況">
@@ -1698,11 +1768,15 @@ function SellPage({
 function ConditionOptions({
   includeMissing = false,
   includeNotIncluded = false,
-  includeMixed = false
+  includeMixed = false,
+  missingLabel = "缺少",
+  notIncludedLabel = "官方未提供"
 }: {
   includeMissing?: boolean;
   includeNotIncluded?: boolean;
   includeMixed?: boolean;
+  missingLabel?: string;
+  notIncludedLabel?: string;
 }) {
   return (
     <>
@@ -1710,9 +1784,15 @@ function ConditionOptions({
       <option value="good">良好，有正常使用痕跡</option>
       <option value="worn">明顯磨損</option>
       <option value="damaged">破損</option>
-      {includeMissing && <option value="missing">缺少</option>}
-      {includeNotIncluded && <option value="not_included">原本不含</option>}
-      {includeMixed && <option value="mixed">各零件狀況不一</option>}
+      {includeMissing && <option value="missing">{missingLabel}</option>}
+      {includeNotIncluded && (
+        <option value="not_included">{notIncludedLabel}</option>
+      )}
+      {includeMixed && (
+        <option value="mixed">
+          各零件狀況不一（於商品說明處說明）
+        </option>
+      )}
     </>
   );
 }
@@ -1745,7 +1825,7 @@ function AccountPage({
     const dashboard = result as DashboardData;
     setData(dashboard);
     setDisplayName(dashboard.profile?.display_name ?? "");
-    setContactInfo(dashboard.profile?.contact_info ?? "");
+    setContactInfo(contactInfoText(dashboard.profile?.contact_info));
     setBio(dashboard.profile?.bio ?? "");
   }, [onMessage]);
 
@@ -1956,7 +2036,9 @@ function AccountPage({
                   <p>成交時間：{dateTime(transaction.created_at)}</p>
                   <div className="contact-box">
                     <b>交易對方提供的聯絡方式</b>
-                    <p className="preserve-lines">{String(counterpart || "對方尚未填寫")}</p>
+                    <p className="preserve-lines">
+                      {contactInfoText(counterpart) || "對方尚未填寫"}
+                    </p>
                   </div>
                   {Boolean(link) && (
                     <a href={String(link)} target="_blank" rel="noreferrer">
@@ -2223,7 +2305,7 @@ function GuidePage() {
           每件商品至少一張照片。不得使用官方圖、網路商店圖、搜尋結果、他人照片或 AI 生成的商品替代圖。發霉、破損與缺件處必須提供清楚近照。
         </GuideCard>
         <GuideCard number="04" title="新舊程度由站方統一定義">
-          「全新未拆」只限原廠封膜或封條完整；已重新包膜必須標為重新封裝。「近新」、「良好」、「明顯使用」及「零件品」都依刊登表單顯示的固定定義選擇。
+          「全新未拆」只限原廠封膜或封條完整；已重新包膜必須標為重新封裝。「近新」、「良好」、「明顯使用」及「補件用」都依刊登表單顯示的固定定義選擇。
         </GuideCard>
         <GuideCard number="05" title="發霉商品可以刊登，但不得隱瞞">
           依無霉、僅霉味、輕微、中度、重度五級揭露。有霉味或霉斑就必須填補充說明與照片；刻意隱瞞屬零容忍違規。
