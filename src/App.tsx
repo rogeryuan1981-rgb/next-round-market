@@ -59,6 +59,28 @@ type Listing = {
   first_listing_submission: boolean;
   cover_image_path: string | null;
   bid_count: number;
+  seller_rating: number | null;
+  seller_review_count: number;
+};
+
+type TransactionMessage = {
+  id: string;
+  transaction_id: string;
+  sender_id: string;
+  sender_name: string;
+  message_text: string;
+  created_at: string;
+};
+
+type PublicReview = {
+  id: string;
+  author_name: string;
+  overall_rating: number;
+  description_rating: number | null;
+  communication_rating: number;
+  review_text: string;
+  created_at: string;
+  photos: Array<{ storage_path: string; sort_order: number }>;
 };
 
 type DashboardData = {
@@ -207,6 +229,12 @@ function publicPhoto(path: unknown) {
     .publicUrl;
 }
 
+function publicReviewPhoto(path: unknown) {
+  if (!path || typeof path !== "string") return "";
+  return supabase.storage.from("review-photos").getPublicUrl(path).data
+    .publicUrl;
+}
+
 function currentDutchPrice(listing: Listing) {
   if (
     listing.auction_type !== "dutch" ||
@@ -247,7 +275,12 @@ function errorText(error: unknown) {
     SECOND_CHANCE_NOT_ACCEPTED_AT_LISTING_TIME:
       "刊登時沒有啟用承接制，因此不能邀請第二順位。",
     BUYER_DEFAULT_MUST_BE_CONFIRMED_BY_ADMIN:
-      "必須先檢舉買家未付款，並由管理員確認後才能提出承接。"
+      "必須先檢舉買家未付款，並由管理員確認後才能提出承接。",
+    TRANSACTION_PARTICIPANT_REQUIRED: "只有這筆交易的買賣雙方可以使用此功能。",
+    MESSAGE_LENGTH_INVALID: "訊息必須是 1 至 2,000 個字。",
+    REVIEW_ALREADY_SUBMITTED: "你已經送出這筆交易的評價，不能重複評價。",
+    REVIEW_TEXT_LENGTH_INVALID: "評價內容必須是 10 至 2,000 個字。",
+    INVALID_REVIEW_PHOTOS: "評價最多可附 5 張照片。"
   };
 
   const matched = Object.keys(translations).find((key) =>
@@ -688,6 +721,7 @@ function ListingDetail({
 }) {
   const [listing, setListing] = useState<Listing | null>(null);
   const [photos, setPhotos] = useState<string[]>([]);
+  const [reviews, setReviews] = useState<PublicReview[]>([]);
   const [activePhoto, setActivePhoto] = useState(0);
   const [maximumBid, setMaximumBid] = useState("");
   const [acceptablePrice, setAcceptablePrice] = useState("");
@@ -698,7 +732,7 @@ function ListingDetail({
   const [, tick] = useState(0);
 
   const load = useCallback(async () => {
-    const [listingResult, photoResult] = await Promise.all([
+    const [listingResult, photoResult, reviewResult] = await Promise.all([
       supabase
         .from("market_listings_public")
         .select("*")
@@ -708,7 +742,12 @@ function ListingDetail({
         .from("market_listing_photos_public")
         .select("storage_path,sort_order")
         .eq("listing_id", listingId)
-        .order("sort_order")
+        .order("sort_order"),
+      supabase
+        .from("market_listing_reviews_public")
+        .select("*")
+        .eq("listing_id", listingId)
+        .order("created_at", { ascending: false })
     ]);
     if (listingResult.error) {
       onMessage(errorText(listingResult.error));
@@ -718,6 +757,7 @@ function ListingDetail({
     setPhotos(
       (photoResult.data ?? []).map((photo) => publicPhoto(photo.storage_path))
     );
+    setReviews((reviewResult.data ?? []) as PublicReview[]);
   }, [listingId, onMessage]);
 
   useEffect(() => {
@@ -812,7 +852,11 @@ function ListingDetail({
             </span>
           </div>
           <h1>{listing.title}</h1>
-          <p className="seller-line">賣家：{listing.seller_name}</p>
+          <p className="seller-line">
+            賣家：{listing.seller_name} · {listing.seller_review_count > 0
+              ? `★ ${Number(listing.seller_rating).toFixed(1)}（${listing.seller_review_count} 則評價）`
+              : "尚無評價"}
+          </p>
 
           <div className="price-panel">
             <span>
@@ -1077,6 +1121,56 @@ function ListingDetail({
           )}
         </section>
       </div>
+
+      <section className="reviews-section">
+        <div className="section-heading compact-heading">
+          <div>
+            <span className="eyebrow">VERIFIED TRANSACTIONS</span>
+            <h2>成交買家評價</h2>
+          </div>
+          <p>只有本站成交買家能留下商品與賣家評價，送出後不可修改或刪除。</p>
+        </div>
+        {reviews.length === 0 ? (
+          <div className="empty-state">這件商品目前尚無成交評價。</div>
+        ) : (
+          <div className="review-grid">
+            {reviews.map((review) => (
+              <article className="review-card" key={review.id}>
+                <div className="review-heading">
+                  <div>
+                    <strong>{review.author_name}</strong>
+                    <span>{dateTime(review.created_at)}</span>
+                  </div>
+                  <span className="stars" aria-label={`${review.overall_rating} 顆星`}>
+                    {"★".repeat(review.overall_rating)}{"☆".repeat(5 - review.overall_rating)}
+                  </span>
+                </div>
+                <p className="preserve-lines">{review.review_text}</p>
+                <div className="review-scores">
+                  {review.description_rating !== null && (
+                    <span>描述相符 {review.description_rating}/5</span>
+                  )}
+                  <span>溝通體驗 {review.communication_rating}/5</span>
+                </div>
+                {review.photos.length > 0 && (
+                  <div className="review-photo-row">
+                    {review.photos.map((photo) => (
+                      <a
+                        href={publicReviewPhoto(photo.storage_path)}
+                        target="_blank"
+                        rel="noreferrer"
+                        key={photo.storage_path}
+                      >
+                        <img src={publicReviewPhoto(photo.storage_path)} alt="成交評價實拍" />
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
 
       <Notice tone="warning">
         Next Round Market 僅提供刊登、競價與聯絡媒合，不經手款項，不驗證商品真偽、品質、付款或交付。請交易雙方自行核對商品與交易條件。
@@ -1813,11 +1907,24 @@ function AccountPage({
   const [contactInfo, setContactInfo] = useState("");
   const [bio, setBio] = useState("");
   const [working, setWorking] = useState(false);
+  const [reviewedTransactions, setReviewedTransactions] = useState<Set<string>>(
+    new Set()
+  );
+  const [activeThread, setActiveThread] = useState<Record<string, unknown> | null>(
+    null
+  );
+  const [activeReview, setActiveReview] = useState<Record<string, unknown> | null>(
+    null
+  );
 
   const load = useCallback(async () => {
-    const { data: result, error } = await supabase.rpc(
-      "get_my_market_dashboard"
-    );
+    const [{ data: result, error }, reviewResult] = await Promise.all([
+      supabase.rpc("get_my_market_dashboard"),
+      supabase
+        .from("transaction_reviews")
+        .select("transaction_id")
+        .eq("author_id", session.user.id)
+    ]);
     if (error) {
       onMessage(errorText(error));
       return;
@@ -1827,7 +1934,10 @@ function AccountPage({
     setDisplayName(dashboard.profile?.display_name ?? "");
     setContactInfo(contactInfoText(dashboard.profile?.contact_info));
     setBio(dashboard.profile?.bio ?? "");
-  }, [onMessage]);
+    setReviewedTransactions(
+      new Set((reviewResult.data ?? []).map((row) => String(row.transaction_id)))
+    );
+  }, [onMessage, session.user.id]);
 
   useEffect(() => {
     void load();
@@ -2046,6 +2156,22 @@ function AccountPage({
                     </a>
                   )}
                   <div className="button-row">
+                    <button
+                      type="button"
+                      onClick={() => setActiveThread(transaction)}
+                    >
+                      交易訊息（保留紀錄）
+                    </button>
+                    {reviewedTransactions.has(String(transaction.id)) ? (
+                      <span className="completed-label">已完成評價</span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setActiveReview(transaction)}
+                      >
+                        填寫成交評價
+                      </button>
+                    )}
                     {transaction.my_role === "seller" && !link && (
                       <button
                         type="button"
@@ -2107,7 +2233,286 @@ function AccountPage({
           </div>
         )}
       </section>
+
+      {activeThread && (
+        <TransactionChat
+          transaction={activeThread}
+          currentUserId={session.user.id}
+          onClose={() => setActiveThread(null)}
+          onMessage={onMessage}
+        />
+      )}
+
+      {activeReview && (
+        <ReviewForm
+          transaction={activeReview}
+          session={session}
+          onClose={() => setActiveReview(null)}
+          onSubmitted={async () => {
+            setActiveReview(null);
+            await load();
+          }}
+          onMessage={onMessage}
+        />
+      )}
     </section>
+  );
+}
+
+function TransactionChat({
+  transaction,
+  currentUserId,
+  onClose,
+  onMessage
+}: {
+  transaction: Record<string, unknown>;
+  currentUserId: string;
+  onClose: () => void;
+  onMessage: (value: string) => void;
+}) {
+  const [messages, setMessages] = useState<TransactionMessage[]>([]);
+  const [messageText, setMessageText] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const loadMessages = useCallback(async () => {
+    const { data, error } = await supabase.rpc("get_transaction_messages", {
+      requested_transaction_id: transaction.id
+    });
+    if (error) onMessage(errorText(error));
+    else setMessages((data ?? []) as TransactionMessage[]);
+  }, [onMessage, transaction.id]);
+
+  useEffect(() => {
+    void loadMessages();
+    const timer = window.setInterval(() => void loadMessages(), 8000);
+    return () => window.clearInterval(timer);
+  }, [loadMessages]);
+
+  async function sendMessage(event: FormEvent) {
+    event.preventDefault();
+    if (!messageText.trim()) return;
+    setSending(true);
+    const { error } = await supabase.rpc("send_transaction_message", {
+      requested_transaction_id: transaction.id,
+      requested_message_text: messageText
+    });
+    setSending(false);
+    if (error) onMessage(errorText(error));
+    else {
+      setMessageText("");
+      await loadMessages();
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="dialog-panel chat-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="交易訊息"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-heading">
+          <div>
+            <span className="eyebrow">TRANSACTION CHAT</span>
+            <h2>{String(transaction.title)}</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="關閉">×</button>
+        </div>
+        <Notice tone="info">
+          此處只供本筆交易的買賣雙方溝通。所有訊息會保留發言者與時間，不能修改或刪除。
+        </Notice>
+        <div className="chat-history" aria-live="polite">
+          {messages.length === 0 ? (
+            <div className="empty-state">尚無訊息，請直接說明付款、交付或商品確認事項。</div>
+          ) : (
+            messages.map((message) => (
+              <article
+                className={`chat-message ${message.sender_id === currentUserId ? "own" : ""}`}
+                key={message.id}
+              >
+                <div className="message-meta">
+                  <strong>{message.sender_name}</strong>
+                  <time>{dateTime(message.created_at)}</time>
+                </div>
+                <p className="preserve-lines">{message.message_text}</p>
+              </article>
+            ))
+          )}
+        </div>
+        <form className="chat-compose" onSubmit={sendMessage}>
+          <textarea
+            required
+            maxLength={2000}
+            value={messageText}
+            onChange={(event) => setMessageText(event.target.value)}
+            placeholder="輸入交易訊息（送出後不能修改或刪除）"
+          />
+          <button className="primary-button" type="submit" disabled={sending || !messageText.trim()}>
+            {sending ? "傳送中…" : "送出訊息"}
+          </button>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function StarRating({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="star-input">
+      <span>{label}</span>
+      <div role="radiogroup" aria-label={label}>
+        {[1, 2, 3, 4, 5].map((score) => (
+          <button
+            type="button"
+            role="radio"
+            aria-checked={value === score}
+            className={score <= value ? "active" : ""}
+            onClick={() => onChange(score)}
+            key={score}
+            aria-label={`${score} 顆星`}
+          >
+            ★
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReviewForm({
+  transaction,
+  session,
+  onClose,
+  onSubmitted,
+  onMessage
+}: {
+  transaction: Record<string, unknown>;
+  session: Session;
+  onClose: () => void;
+  onSubmitted: () => Promise<void>;
+  onMessage: (value: string) => void;
+}) {
+  const isBuyer = transaction.my_role === "buyer";
+  const [overall, setOverall] = useState(5);
+  const [description, setDescription] = useState(5);
+  const [communication, setCommunication] = useState(5);
+  const [reviewText, setReviewText] = useState("");
+  const [files, setFiles] = useState<File[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submitReview(event: FormEvent) {
+    event.preventDefault();
+    if (files.length > 5) {
+      onMessage("評價最多可附 5 張照片。");
+      return;
+    }
+    if (files.some((file) => !file.type.startsWith("image/") || file.size > 8 * 1024 * 1024)) {
+      onMessage("評價照片必須是圖片，且單張不得超過 8 MB。");
+      return;
+    }
+
+    setSubmitting(true);
+    const uploadedPaths: string[] = [];
+    try {
+      for (const file of files) {
+        const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+        const path = `${session.user.id}/${transaction.id}/${crypto.randomUUID()}.${extension}`;
+        const { error } = await supabase.storage
+          .from("review-photos")
+          .upload(path, file, { cacheControl: "3600", upsert: false });
+        if (error) throw error;
+        uploadedPaths.push(path);
+      }
+
+      const { error } = await supabase.rpc("submit_transaction_review", {
+        requested_transaction_id: transaction.id,
+        requested_overall_rating: overall,
+        requested_description_rating: isBuyer ? description : null,
+        requested_communication_rating: communication,
+        requested_review_text: reviewText,
+        requested_photos: uploadedPaths.map((storage_path, sort_order) => ({
+          storage_path,
+          sort_order
+        }))
+      });
+      if (error) throw error;
+      onMessage("評價已送出並永久保留。感謝你留下真實交易經驗。");
+      await onSubmitted();
+    } catch (error) {
+      if (uploadedPaths.length > 0) {
+        await supabase.storage.from("review-photos").remove(uploadedPaths);
+      }
+      onMessage(errorText(error));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <form
+        className="dialog-panel review-form"
+        role="dialog"
+        aria-modal="true"
+        aria-label="填寫成交評價"
+        onSubmit={submitReview}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-heading">
+          <div>
+            <span className="eyebrow">PURCHASE REVIEW</span>
+            <h2>評價「{String(transaction.title)}」</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="關閉">×</button>
+        </div>
+        <p>{isBuyer ? "請評價商品描述與賣家溝通。" : "請評價買家的交易與溝通。"}</p>
+        <div className="rating-grid">
+          <StarRating label="整體評價" value={overall} onChange={setOverall} />
+          {isBuyer && (
+            <StarRating label="商品描述相符" value={description} onChange={setDescription} />
+          )}
+          <StarRating label="溝通體驗" value={communication} onChange={setCommunication} />
+        </div>
+        <Field label="評價內容" hint="10 至 2,000 個字；請陳述實際交易經驗。">
+          <textarea
+            required
+            minLength={10}
+            maxLength={2000}
+            value={reviewText}
+            onChange={(event) => setReviewText(event.target.value)}
+          />
+        </Field>
+        {isBuyer && (
+          <Field label="評價照片（選填，最多 5 張）" hint="可上傳收到商品後的實拍；單張上限 8 MB。">
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(event) => setFiles(Array.from(event.target.files ?? []).slice(0, 5))}
+            />
+          </Field>
+        )}
+        {isBuyer && files.length > 0 && (
+          <p className="selected-files">已選擇 {files.length} 張照片</p>
+        )}
+        <Notice tone="warning">
+          評價送出後不能修改或刪除；買家評價會公開顯示在商品頁，賣家對買家的評價只計入會員交易評分。
+        </Notice>
+        <button className="primary-button" type="submit" disabled={submitting || reviewText.trim().length < 10}>
+          {submitting ? "送出中…" : "確認送出永久評價"}
+        </button>
+      </form>
+    </div>
   );
 }
 
